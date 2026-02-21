@@ -2,29 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { DIVISIONS, MONTHS, STATUS_OPTIONS, DEFAULT_RKAP_PROGRAMS, BRANCHES, EMPLOYEES, getEmployeesByDivision, type Division, type MonthlyPlan, type WeeklyPlan, type Status } from './types';
 import { cn } from './utils/cn';
 import { Sun, Moon } from 'lucide-react';
-
-// Storage keys
-const MONTHLY_PLANS_KEY = 'pdam_monthly_plans';
-const WEEKLY_PLANS_KEY = 'pdam_weekly_plans';
-
-// Helper functions for localStorage
-const loadMonthlyPlans = (): MonthlyPlan[] => {
-  const stored = localStorage.getItem(MONTHLY_PLANS_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
-
-const saveMonthlyPlans = (plans: MonthlyPlan[]) => {
-  localStorage.setItem(MONTHLY_PLANS_KEY, JSON.stringify(plans));
-};
-
-const loadWeeklyPlans = (): WeeklyPlan[] => {
-  const stored = localStorage.getItem(WEEKLY_PLANS_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
-
-const saveWeeklyPlans = (plans: WeeklyPlan[]) => {
-  localStorage.setItem(WEEKLY_PLANS_KEY, JSON.stringify(plans));
-};
+import { collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
 
 const CURRENT_DIVISION_KEY = 'pdam_current_division';
 
@@ -77,9 +56,34 @@ export function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  const [monthlyPlans, setMonthlyPlans] = useState<MonthlyPlan[]>([]);
+  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>([]);
 
-  const [monthlyPlans, setMonthlyPlans] = useState<MonthlyPlan[]>(loadMonthlyPlans);
-  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>(loadWeeklyPlans);
+  // Firebase Real-time Listeners
+  useEffect(() => {
+    const qMonthly = query(collection(db, 'monthlyPlans'));
+    const unsubMonthly = onSnapshot(qMonthly, (snapshot) => {
+      const plans: MonthlyPlan[] = [];
+      snapshot.forEach(doc => {
+        plans.push({ ...doc.data(), id: doc.id } as MonthlyPlan);
+      });
+      setMonthlyPlans(plans);
+    });
+
+    const qWeekly = query(collection(db, 'weeklyPlans'));
+    const unsubWeekly = onSnapshot(qWeekly, (snapshot) => {
+      const plans: WeeklyPlan[] = [];
+      snapshot.forEach(doc => {
+        plans.push({ ...doc.data(), id: doc.id } as WeeklyPlan);
+      });
+      setWeeklyPlans(plans);
+    });
+
+    return () => {
+      unsubMonthly();
+      unsubWeekly();
+    };
+  }, []);
 
   // Modal states
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
@@ -192,31 +196,33 @@ export function App() {
       setLoginError('Password salah. Silakan coba lagi.');
     }
   };
-
-  const handleSaveMonthly = () => {
-    const newPlan: MonthlyPlan = {
-      id: editingMonthly?.id || `monthly-${Date.now()}`,
+  const handleSaveMonthly = async () => {
+    const planData: Omit<MonthlyPlan, 'id'> = {
       rkap_id: monthlyForm.rkap_id,
       program: monthlyForm.program,
-      divisi: currentDivision && currentDivision !== 'direksi' ? currentDivision : 'perencanaan_teknik', // Automatically use logged in division
+      divisi: currentDivision && currentDivision !== 'direksi' ? currentDivision : 'perencanaan_teknik',
       bulan: selectedMonth,
       tahun: selectedYear,
       status: monthlyForm.status,
     };
 
-    if (editingMonthly) {
-      setMonthlyPlans(prev => prev.map(p => p.id === editingMonthly.id ? newPlan : p));
-    } else {
-      setMonthlyPlans(prev => [...prev, newPlan]);
+    try {
+      if (editingMonthly) {
+        // Update existing document
+        const docRef = doc(db, 'monthlyPlans', editingMonthly.id);
+        await updateDoc(docRef, planData);
+      } else {
+        // Add new document
+        await addDoc(collection(db, 'monthlyPlans'), planData);
+      }
+
+      setShowMonthlyModal(false);
+      setEditingMonthly(null);
+      resetMonthlyForm();
+    } catch (error) {
+      console.error("Error saving monthly plan: ", error);
+      alert("Gagal menyimpan data plan bulanan.");
     }
-
-    saveMonthlyPlans(editingMonthly
-      ? monthlyPlans.map(p => p.id === editingMonthly.id ? newPlan : p)
-      : [...monthlyPlans, newPlan]);
-
-    setShowMonthlyModal(false);
-    setEditingMonthly(null);
-    resetMonthlyForm();
   };
 
   const handleEditMonthly = (plan: MonthlyPlan) => {
@@ -230,14 +236,18 @@ export function App() {
     setShowMonthlyModal(true);
   };
 
-  const handleDeleteMonthly = (id: string) => {
-    const updated = monthlyPlans.filter(p => p.id !== id);
-    setMonthlyPlans(updated);
-    saveMonthlyPlans(updated);
-    // Also delete related weekly plans
-    const updatedWeekly = weeklyPlans.filter(w => w.monthly_plan_id !== id);
-    setWeeklyPlans(updatedWeekly);
-    saveWeeklyPlans(updatedWeekly);
+  const handleDeleteMonthly = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'monthlyPlans', id));
+      // Also delete related weekly plans
+      const relatedWeekly = weeklyPlans.filter(w => w.monthly_plan_id === id);
+      for (const weekly of relatedWeekly) {
+        await deleteDoc(doc(db, 'weeklyPlans', weekly.id));
+      }
+    } catch (error) {
+      console.error("Error deleting monthly plan: ", error);
+      alert("Gagal menghapus data plan bulanan.");
+    }
   };
 
   const resetMonthlyForm = () => {
@@ -249,9 +259,8 @@ export function App() {
     });
   };
 
-  const handleAddFromRKAP = (prog: typeof DEFAULT_RKAP_PROGRAMS[0]) => {
-    const newPlan: MonthlyPlan = {
-      id: `monthly-${Date.now()}`,
+  const handleAddFromRKAP = async (prog: typeof DEFAULT_RKAP_PROGRAMS[0]) => {
+    const planData: Omit<MonthlyPlan, 'id'> = {
       rkap_id: prog.id,
       program: prog.program,
       divisi: currentDivision && currentDivision !== 'direksi' ? currentDivision : 'perencanaan_teknik',
@@ -260,18 +269,16 @@ export function App() {
       status: 'rencana',
     };
 
-    setMonthlyPlans(prev => {
-      const updated = [...prev, newPlan];
-      saveMonthlyPlans(updated);
-      return updated;
-    });
-
-    // We no longer switch the tab so the user stays on the RKAP tab
+    try {
+      await addDoc(collection(db, 'monthlyPlans'), planData);
+    } catch (error) {
+      console.error("Error adding from RKAP: ", error);
+      alert("Gagal menambahkan program ke Rencana Bulanan.");
+    }
   };
 
-  const handleSaveWeekly = () => {
-    const newPlan: WeeklyPlan = {
-      id: editingWeekly?.id || `weekly-${Date.now()}`,
+  const handleSaveWeekly = async () => {
+    const planData: Omit<WeeklyPlan, 'id'> = {
       monthly_plan_id: weeklyForm.monthly_plan_id,
       program: weeklyForm.program,
       divisi: currentDivision && currentDivision !== 'direksi' ? currentDivision : 'perencanaan_teknik',
@@ -281,19 +288,23 @@ export function App() {
       penanggung_jawab: weeklyForm.penanggung_jawab,
     };
 
-    if (editingWeekly) {
-      setWeeklyPlans(prev => prev.map(p => p.id === editingWeekly.id ? newPlan : p));
-    } else {
-      setWeeklyPlans(prev => [...prev, newPlan]);
+    try {
+      if (editingWeekly) {
+        // Update existing
+        const docRef = doc(db, 'weeklyPlans', editingWeekly.id);
+        await updateDoc(docRef, planData);
+      } else {
+        // Add new
+        await addDoc(collection(db, 'weeklyPlans'), planData);
+      }
+
+      setShowWeeklyModal(false);
+      setEditingWeekly(null);
+      resetWeeklyForm();
+    } catch (error) {
+      console.error("Error saving weekly plan: ", error);
+      alert("Gagal menyimpan data plan mingguan.");
     }
-
-    saveWeeklyPlans(editingWeekly
-      ? weeklyPlans.map(p => p.id === editingWeekly.id ? newPlan : p)
-      : [...weeklyPlans, newPlan]);
-
-    setShowWeeklyModal(false);
-    setEditingWeekly(null);
-    resetWeeklyForm();
   };
 
   const handleEditWeekly = (plan: WeeklyPlan) => {
@@ -308,10 +319,13 @@ export function App() {
     setShowWeeklyModal(true);
   };
 
-  const handleDeleteWeekly = (id: string) => {
-    const updated = weeklyPlans.filter(p => p.id !== id);
-    setWeeklyPlans(updated);
-    saveWeeklyPlans(updated);
+  const handleDeleteWeekly = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'weeklyPlans', id));
+    } catch (error) {
+      console.error("Error deleting weekly plan: ", error);
+      alert("Gagal menghapus data plan mingguan.");
+    }
   };
 
   const resetWeeklyForm = () => {

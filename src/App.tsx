@@ -1091,8 +1091,30 @@ export function App() {
               return (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   {thisSubs.map(sub => {
-                    const subPrograms = filteredMonthlyPlans.filter(p => p.sub_divisi === sub.id);
-                    const subWeeklyTotal = filteredWeeklyPlans.filter(p => p.sub_divisi === sub.id).length;
+                    // Current month programs for this sub-division
+                    const currentSubPrograms = filteredMonthlyPlans.filter(p => p.sub_divisi === sub.id);
+
+                    // Carry-over: programs from PREVIOUS months, same division/sub-div, not yet 'selesai'
+                    const carryOverSubPrograms = monthlyPlans.filter(p => {
+                      if (p.divisi !== thisDivision) return false;
+                      if (p.sub_divisi !== sub.id) return false;
+                      // Only from previous months
+                      const isPrev = p.tahun < selectedYear || (p.tahun === selectedYear && p.bulan < selectedMonth);
+                      if (!isPrev) return false;
+                      // Not already listed in current month
+                      if (currentSubPrograms.some(c => c.id === p.id)) return false;
+                      // Check latest weekly plan status — if selesai, don't carry over
+                      const progWeeklyAll = weeklyPlans.filter(w => w.monthly_plan_id === p.id);
+                      if (progWeeklyAll.length === 0) return true; // no report yet = still ongoing
+                      const latestStatus = progWeeklyAll[progWeeklyAll.length - 1].status;
+                      return latestStatus !== 'selesai';
+                    });
+
+                    const subPrograms = [...carryOverSubPrograms, ...currentSubPrograms];
+                    const subWeeklyTotal = weeklyPlans.filter(p => 
+                      p.sub_divisi === sub.id && p.divisi === thisDivision &&
+                      subPrograms.some(prog => prog.id === p.monthly_plan_id)
+                    ).length;
 
                     return (
                       <div key={sub.id} className={cn("glass-card rounded-2xl overflow-hidden border flex flex-col",
@@ -1118,7 +1140,9 @@ export function App() {
                           {subPrograms.length === 0 ? (
                             <p className="px-4 py-6 text-xs text-slate-400 dark:text-slate-500 italic text-center">Belum ada program</p>
                           ) : subPrograms.map(prog => {
-                            const progWeekly = filteredWeeklyPlans.filter(w => w.monthly_plan_id === prog.id);
+                            // Use all weeklyPlans so carry-over programs also show their history
+                            const progWeekly = weeklyPlans.filter(w => w.monthly_plan_id === prog.id);
+                            const isCarryOver = carryOverSubPrograms.some(c => c.id === prog.id);
                             const latestStatus = progWeekly.length > 0 ? progWeekly[progWeekly.length - 1].status : null;
 
                             return (
@@ -1126,7 +1150,15 @@ export function App() {
                                 {/* Program name + add button */}
                                 <div className="flex items-start gap-2 mb-2">
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-snug">{prog.program}</p>
+                                    <div className="flex items-start gap-1.5 flex-wrap">
+                                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-snug">{prog.program}</p>
+                                      {isCarryOver && (
+                                        <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800/40 shrink-0 mt-0.5">
+                                          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                          Lanjutan {MONTHS[(prog.bulan ?? 1) - 1]}
+                                        </span>
+                                      )}
+                                    </div>
                                     {latestStatus && (
                                       <span className={cn("inline-block text-[10px] font-bold px-1.5 py-0.5 rounded mt-1",
                                         latestStatus === 'selesai' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :

@@ -1200,7 +1200,7 @@ export function App() {
 
                                         {/* Upload + Edit + Delete (hover) */}
                                         {currentDivision !== 'direksi' && (
-                                          <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700/30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700/30 flex items-center gap-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                                             {/* Upload foto */}
                                             {(!wp.foto_urls || wp.foto_urls.length < 3) && (
                                               <label className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg cursor-pointer transition-colors">

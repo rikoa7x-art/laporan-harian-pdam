@@ -3,6 +3,11 @@ import rkapData from './rkap_new.json';
 
 export type Division = 'perencanaan_teknik' | 'prodistan' | 'maintenance' | 'direksi';
 
+export type SubDivision =
+  | 'bangunan_sipil' | 'perpipaan' | 'wasdal'
+  | 'trandist' | 'quality_control' | 'nrw'
+  | 'mekanikal' | 'elektrikal' | 'bengkel_meter';
+
 export type Status = 'rencana' | 'dalam_pekerjaan' | 'selesai' | 'ditunda';
 
 export interface RKAPProgram {
@@ -18,9 +23,9 @@ export interface MonthlyPlan {
   rkap_id: string;
   program: string;
   divisi: Division;
+  sub_divisi?: SubDivision;
   bulan: number; // 1-12
   tahun: number;
-  status: Status;
 }
 
 export interface WeeklyPlan {
@@ -28,10 +33,14 @@ export interface WeeklyPlan {
   monthly_plan_id: string;
   program: string;
   divisi: Division;
+  sub_divisi?: SubDivision;
+  catatan?: string;
   bulan: number;
   tahun: number;
   tanggal_mulai: string; // YYYY-MM-DD
   penanggung_jawab: string[];
+  foto_urls?: string[]; // Arrays of URLs, max 3 photos
+  status: Status;
 }
 
 export const DIVISIONS: { id: Division; name: string; color: string }[] = [
@@ -40,6 +49,25 @@ export const DIVISIONS: { id: Division; name: string; color: string }[] = [
   { id: 'maintenance', name: 'Divisi Maintenance', color: 'orange' },
   { id: 'direksi', name: 'Dashboard Direksi', color: 'purple' },
 ];
+
+export const SUB_DIVISIONS: Record<Division, { id: SubDivision; name: string }[]> = {
+  perencanaan_teknik: [
+    { id: 'bangunan_sipil', name: 'Bangunan Sipil' },
+    { id: 'perpipaan', name: 'Perpipaan' },
+    { id: 'wasdal', name: 'Wasdal' },
+  ],
+  prodistan: [
+    { id: 'trandist', name: 'Trandist' },
+    { id: 'quality_control', name: 'Quality Control' },
+    { id: 'nrw', name: 'NRW' },
+  ],
+  maintenance: [
+    { id: 'mekanikal', name: 'Mekanikal' },
+    { id: 'elektrikal', name: 'Elektrikal' },
+    { id: 'bengkel_meter', name: 'Bengkel Meter' },
+  ],
+  direksi: [],
+};
 
 export const MONTHS = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -53,7 +81,7 @@ export const STATUS_OPTIONS: { value: Status; label: string; color: string }[] =
   { value: 'ditunda', label: 'Ditunda', color: 'red' },
 ];
 
-export const EMPLOYEES: { id: string; name: string; division: Division; position: string; level: 'manager' | 'asman' | 'staf' }[] = [
+export const EMPLOYEES: { id: string; name: string; division: Division; sub_division?: SubDivision; position: string; level: 'manager' | 'asman' | 'staf' }[] = [
   // Divisi Perencanaan Teknik
   { id: 'emp-pt-1', name: 'Dadi Riswadi', division: 'perencanaan_teknik', position: 'Manager', level: 'manager' },
   { id: 'emp-pt-2', name: 'M. Sulaeman', division: 'perencanaan_teknik', position: 'Asman', level: 'asman' },

@@ -1507,6 +1507,23 @@ export function App() {
             ).map(div => {
               const divMonthly = monthlyPlans.filter(p => p.divisi === div.id && p.bulan === selectedMonth && p.tahun === selectedYear);
               const divWeekly = weeklyPlans.filter(p => p.divisi === div.id && p.bulan === selectedMonth && p.tahun === selectedYear);
+
+              // Carry-over: programs from PREVIOUS months, same division, not yet 'selesai'
+              const divCarryOverMonthly = monthlyPlans.filter(p => {
+                if (p.divisi !== div.id) return false;
+                const isPrev = p.tahun < selectedYear || (p.tahun === selectedYear && p.bulan < selectedMonth);
+                if (!isPrev) return false;
+                if (divMonthly.some(c => c.id === p.id)) return false;
+                const progWeeklyAll = weeklyPlans.filter(w => w.monthly_plan_id === p.id);
+                if (progWeeklyAll.length === 0) return true;
+                const latestStatus = progWeeklyAll[progWeeklyAll.length - 1].status;
+                return latestStatus !== 'selesai';
+              });
+
+              const allDivMonthly = [...divCarryOverMonthly, ...divMonthly];
+              // For carry-over programs, include ALL their weekly plans (not just current month)
+              const carryOverWeekly = divCarryOverMonthly.flatMap(p => weeklyPlans.filter(w => w.monthly_plan_id === p.id));
+              const allDivWeekly = [...carryOverWeekly, ...divWeekly];
               const subDivisions = SUB_DIVISIONS[div.id as keyof typeof SUB_DIVISIONS] || [];
 
               return (
@@ -1521,15 +1538,20 @@ export function App() {
                   )}>
                     <h3 className="font-bold text-white text-base">{div.name}</h3>
                     <span className="ml-auto text-xs font-bold bg-white/20 text-white px-2.5 py-1 rounded-full">
-                      {divMonthly.length} Program · {divWeekly.length} Laporan
+                      {allDivMonthly.length} Program · {allDivWeekly.length} Laporan
                     </span>
                   </div>
 
                   {/* 3-column sub-division grid */}
                   <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {subDivisions.map(sub => {
-                      const subMonthly = divMonthly.filter(p => p.sub_divisi === sub.id);
-                      const subWeekly = divWeekly.filter(p => p.sub_divisi === sub.id);
+                      const subMonthlyCurrentMonth = divMonthly.filter(p => p.sub_divisi === sub.id);
+                      const subCarryOver = divCarryOverMonthly.filter(p => p.sub_divisi === sub.id);
+                      const subMonthly = [...subCarryOver, ...subMonthlyCurrentMonth];
+                      // For carry-over programs, get ALL their weekly plans
+                      const subWeeklyCurrentMonth = divWeekly.filter(p => p.sub_divisi === sub.id);
+                      const subWeeklyCarryOver = subCarryOver.flatMap(p => weeklyPlans.filter(w => w.monthly_plan_id === p.id));
+                      const subWeekly = [...subWeeklyCarryOver, ...subWeeklyCurrentMonth];
                       const subSelesai = subWeekly.filter(p => p.status === 'selesai').length;
                       const subDalamPekerjaan = subWeekly.filter(p => p.status === 'dalam_pekerjaan').length;
 
@@ -1556,13 +1578,25 @@ export function App() {
                             {subMonthly.length === 0 && subWeekly.length === 0 ? (
                               <p className="px-4 py-5 text-xs text-slate-300 dark:text-slate-600 italic text-center">Belum ada program</p>
                             ) : subMonthly.map(prog => {
-                              const progWeekly = subWeekly.filter(w => w.monthly_plan_id === prog.id);
+                              const isCarryOver = subCarryOver.some(c => c.id === prog.id);
+                              // For carry-over, show ALL weekly plans; for current month, show only current month weekly plans
+                              const progWeekly = isCarryOver
+                                ? weeklyPlans.filter(w => w.monthly_plan_id === prog.id)
+                                : subWeeklyCurrentMonth.filter(w => w.monthly_plan_id === prog.id);
                               const latestWeekly = progWeekly.length > 0 ? progWeekly[progWeekly.length - 1] : null;
 
                               return (
                                 <div key={prog.id} className="px-4 py-3">
                                   {/* Program name */}
-                                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-snug mb-1.5">{prog.program}</p>
+                                  <div className="flex items-start gap-1.5 flex-wrap mb-1.5">
+                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-snug">{prog.program}</p>
+                                    {isCarryOver && (
+                                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800/40 shrink-0">
+                                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        Lanjutan {MONTHS[(prog.bulan ?? 1) - 1]}
+                                      </span>
+                                    )}
+                                  </div>
 
                                   {progWeekly.length === 0 ? (
                                     <span className="text-[10px] text-slate-300 dark:text-slate-600 italic">Belum ada laporan mingguan</span>

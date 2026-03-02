@@ -1075,18 +1075,38 @@ export function App() {
               </div>
             </div>
 
-            {filteredMonthlyPlans.length === 0 ? (
-              <div className="glass-card rounded-3xl p-16 text-center text-slate-400 dark:text-slate-500">
-                <svg className="w-16 h-16 mx-auto mb-4 text-slate-200 dark:text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="font-semibold text-lg">Belum ada program di bulan ini</p>
-                <p className="text-sm mt-2">Tambahkan program di tab <strong>Rencana Bulanan</strong> terlebih dahulu</p>
-              </div>
-            ) : (() => {
+            {(() => {
               const thisDivision = currentDivision && currentDivision !== 'direksi' ? currentDivision : 'perencanaan_teknik';
               const thisSubs = SUB_DIVISIONS[thisDivision as keyof typeof SUB_DIVISIONS] || [];
               const divObj = DIVISIONS.find(d => d.id === thisDivision);
+
+              // Calculate ALL carry-over programs first (before empty-state check)
+              const allCarryOverPrograms = monthlyPlans.filter(p => {
+                if (p.divisi !== thisDivision) return false;
+                // Only from previous months
+                const isPrev = p.tahun < selectedYear || (p.tahun === selectedYear && p.bulan < selectedMonth);
+                if (!isPrev) return false;
+                // Not already listed in current month
+                if (filteredMonthlyPlans.some(c => c.id === p.id)) return false;
+                // Check latest weekly plan status — if selesai, don't carry over
+                const progWeeklyAll = weeklyPlans.filter(w => w.monthly_plan_id === p.id);
+                if (progWeeklyAll.length === 0) return true; // no report yet = still ongoing
+                const latestStatus = progWeeklyAll[progWeeklyAll.length - 1].status;
+                return latestStatus !== 'selesai';
+              });
+
+              // Show empty state only if BOTH current and carry-over are empty
+              if (filteredMonthlyPlans.length === 0 && allCarryOverPrograms.length === 0) {
+                return (
+                  <div className="glass-card rounded-3xl p-16 text-center text-slate-400 dark:text-slate-500">
+                    <svg className="w-16 h-16 mx-auto mb-4 text-slate-200 dark:text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="font-semibold text-lg">Belum ada program di bulan ini</p>
+                    <p className="text-sm mt-2">Tambahkan program di tab <strong>Rencana Bulanan</strong> terlebih dahulu</p>
+                  </div>
+                );
+              }
 
               return (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -1094,24 +1114,11 @@ export function App() {
                     // Current month programs for this sub-division
                     const currentSubPrograms = filteredMonthlyPlans.filter(p => p.sub_divisi === sub.id);
 
-                    // Carry-over: programs from PREVIOUS months, same division/sub-div, not yet 'selesai'
-                    const carryOverSubPrograms = monthlyPlans.filter(p => {
-                      if (p.divisi !== thisDivision) return false;
-                      if (p.sub_divisi !== sub.id) return false;
-                      // Only from previous months
-                      const isPrev = p.tahun < selectedYear || (p.tahun === selectedYear && p.bulan < selectedMonth);
-                      if (!isPrev) return false;
-                      // Not already listed in current month
-                      if (currentSubPrograms.some(c => c.id === p.id)) return false;
-                      // Check latest weekly plan status — if selesai, don't carry over
-                      const progWeeklyAll = weeklyPlans.filter(w => w.monthly_plan_id === p.id);
-                      if (progWeeklyAll.length === 0) return true; // no report yet = still ongoing
-                      const latestStatus = progWeeklyAll[progWeeklyAll.length - 1].status;
-                      return latestStatus !== 'selesai';
-                    });
+                    // Carry-over: programs from PREVIOUS months for this specific sub-division
+                    const carryOverSubPrograms = allCarryOverPrograms.filter(p => p.sub_divisi === sub.id);
 
                     const subPrograms = [...carryOverSubPrograms, ...currentSubPrograms];
-                    const subWeeklyTotal = weeklyPlans.filter(p => 
+                    const subWeeklyTotal = weeklyPlans.filter(p =>
                       p.sub_divisi === sub.id && p.divisi === thisDivision &&
                       subPrograms.some(prog => prog.id === p.monthly_plan_id)
                     ).length;
